@@ -362,9 +362,9 @@ const Cloud = {
   async uploadDoc(vehicle,docType,file){
     const path=`${slug(vehicle)}/${docType}.pdf`;
     const up=await sb.storage.from("vehicle-docs").upload(path,file,{upsert:true,contentType:"application/pdf"});
-    if(up.error) throw up.error;
+    if(up.error){ up.error.step="storage upload"; throw up.error; }
     const {error}=await sb.from("vehicle_documents").upsert({vehicle,doc_type:docType,path,updated_at:new Date().toISOString()});
-    if(error) throw error;
+    if(error){ error.step="database row"; throw error; }
   },
   async removeDoc(vehicle,docType){
     await sb.storage.from("vehicle-docs").remove([`${slug(vehicle)}/${docType}.pdf`]);
@@ -834,7 +834,8 @@ async function hrUploadDoc(vehicle,docType,input){
     await Cloud.uploadDoc(vehicle,docType,file);
     vehicleDocs=await Cloud.fetchDocs();
     toast("Document saved","ti-check"); renderHR();
-  }catch(e){ console.error(e); toast("Upload failed — check bucket & policies","ti-cloud-off"); }
+  }catch(e){ console.error(e); toast("Upload failed","ti-cloud-off");
+    alert("Upload failed at the "+(e.step||"?")+" step.\n\nError: "+(e.message||e.error||JSON.stringify(e))+(e.statusCode?"\nCode: "+e.statusCode:"")); }
 }
 async function hrRemoveDoc(vehicle,docType){
   if(!confirm("Remove this document?")) return;

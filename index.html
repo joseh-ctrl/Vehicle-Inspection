@@ -615,8 +615,14 @@ function renderPre(driver,veh){
      <div class="legend"><i class="ti ti-alert-triangle"></i>
        <div><strong>If this vehicle isn't in safe driving condition</strong>Use a different company vehicle, and submit this report so HR can look into the issue.</div></div>
      <button class="btn btn-primary" onclick="submitPre('${esc(driver)}','${esc(veh)}')"><i class="ti ti-circle-check"></i> Start trip</button>
+     <button class="btn btn-ghost" style="margin-top:10px" onclick="cancelPre()"><i class="ti ti-x"></i> Cancel</button>
    </div>`;
   document.getElementById("dForm").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function cancelPre(){
+  prePhotos=[];
+  renderDriver();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 function submitPre(driver,veh){
   const trip={id:uid(),driver,vehicle:veh,status:"open",createdAt:now(),

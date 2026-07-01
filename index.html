@@ -169,6 +169,7 @@ textarea.control{resize:vertical;min-height:64px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy-d);color:#fff;padding:13px 22px;border-radius:12px;font-weight:600;font-size:14px;z-index:80;box-shadow:0 8px 30px rgba(0,0,0,.3);display:flex;align-items:center;gap:9px;animation:up .2s}
 .gate{max-width:360px;margin:40px auto;text-align:center}
 .gate i{font-size:40px;color:var(--blue)}
+.linkbtn{display:block;margin:14px auto 0;color:var(--blue);font-size:13.5px;font-weight:600;background:none;text-decoration:underline}
 
 /* ---------- PHOTOS ---------- */
 .photos-section{margin-bottom:16px}
@@ -370,6 +371,18 @@ const Cloud = {
     const c=new Date(); c.setMonth(c.getMonth()-CONFIG.retentionMonths);
     await sb.from("vehicle_inspections").delete().lt("created_at",c.toISOString());
   },
+  // ---- HR team access ----
+  async isHr(){ const {data}=await sb.rpc("is_hr"); return !!data; },
+  async fetchTeam(){
+    const {data,error}=await sb.from("hr_users").select("*").order("added_at");
+    if(error){console.error(error); return [];}
+    return data;
+  },
+  async addTeam(email,name){
+    const {error}=await sb.from("hr_users").insert({email:email.toLowerCase(),name:name||null});
+    if(error) throw error;
+  },
+  async removeTeam(email){ await sb.from("hr_users").delete().eq("email",email); },
   // ---- Vehicle documents (PDFs in Storage + metadata table) ----
   async fetchDocs(){
     if(!SUPA_ON) return {};
@@ -397,6 +410,7 @@ const Cloud = {
   auth:{
     async session(){ const {data}=await sb.auth.getSession(); return data.session; },
     async signIn(email,pw){ return sb.auth.signInWithPassword({email,password:pw}); },
+    async signUp(email,pw){ return sb.auth.signUp({email,password:pw}); },
     async signOut(){ await sb.auth.signOut(); }
   }
 };
@@ -405,6 +419,7 @@ let hrTrips=[];
 const hrSource = () => SUPA_ON ? hrTrips : Store.all();
 /* Vehicle documents cache (loaded from Supabase) */
 let vehicleDocs={};
+let hrTeam=[];
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
 
 /* =====================================================================
@@ -665,8 +680,9 @@ function submitPost(id){
 /* =====================================================================
    HR VIEW
    ===================================================================== */
+let gateMode="signin";
 function renderGate(){
-  hrView.innerHTML = SUPA_ON ? `
+  hrView.innerHTML = SUPA_ON ? (gateMode==="signin" ? `
    <div class="gate">
      <i class="ti ti-shield-lock"></i>
      <h3 style="margin:10px 0 4px">HR sign in</h3>
@@ -674,7 +690,17 @@ function renderGate(){
      <input id="hrEmail" class="control" type="email" placeholder="Email" autocomplete="username" style="margin-bottom:10px">
      <input id="hrPw" class="control" type="password" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doSignIn()">
      <button class="btn btn-primary" style="margin-top:12px" onclick="doSignIn()"><i class="ti ti-login-2"></i> Sign in</button>
+     <button class="linkbtn" onclick="gateMode='signup';renderGate()">First time here? Create your login</button>
    </div>` : `
+   <div class="gate">
+     <i class="ti ti-user-plus"></i>
+     <h3 style="margin:10px 0 4px">Create your login</h3>
+     <p style="color:var(--muted);font-size:14px;margin-bottom:16px">Use your work email. You'll only see records once an admin has added you to the team.</p>
+     <input id="hrEmail" class="control" type="email" placeholder="Work email" autocomplete="username" style="margin-bottom:10px">
+     <input id="hrPw" class="control" type="password" placeholder="Choose a password (6+ characters)" autocomplete="new-password" onkeydown="if(event.key==='Enter')doSignUp()">
+     <button class="btn btn-primary" style="margin-top:12px" onclick="doSignUp()"><i class="ti ti-user-check"></i> Create login</button>
+     <button class="linkbtn" onclick="gateMode='signin';renderGate()">Already have a login? Sign in</button>
+   </div>`) : `
    <div class="gate">
      <i class="ti ti-lock"></i>
      <h3 style="margin:10px 0 4px">HR access</h3>
@@ -694,12 +720,32 @@ async function doSignIn(){
   if(error)return toast("Sign in failed — check credentials");
   window._hrOK=true; await loadHR();
 }
+async function doSignUp(){
+  const email=val("hrEmail"), pw=val("hrPw");
+  if(!email||!pw)return toast("Enter email and password");
+  if(pw.length<6)return toast("Password must be 6+ characters");
+  const {data,error}=await Cloud.auth.signUp(email,pw);
+  if(error)return toast(error.message||"Sign up failed");
+  if(data.session){ window._hrOK=true; await loadHR(); }
+  else{ gateMode="signin"; renderGate(); toast("Account created — check your email to confirm, then sign in","ti-mail"); }
+}
 async function loadHR(){
-  hrView.innerHTML=`<div class="empty"><i class="ti ti-loader"></i>Loading records…</div>`;
+  hrView.innerHTML=`<div class="empty"><i class="ti ti-loader"></i>Loading…</div>`;
+  const allowed=await Cloud.isHr();
+  if(!allowed){ hrView.innerHTML=accessDeniedHTML(); return; }
   await Cloud.purge();               // enforce 12-month retention server-side
   hrTrips=await Cloud.fetchAll();
   vehicleDocs=await Cloud.fetchDocs();
+  hrTeam=await Cloud.fetchTeam();
   renderHR();
+}
+function accessDeniedHTML(){
+  return `<div class="gate">
+     <i class="ti ti-lock-access" style="color:var(--flag)"></i>
+     <h3 style="margin:10px 0 4px">No access yet</h3>
+     <p style="color:var(--muted);font-size:14px;margin-bottom:16px">Your login works, but an admin hasn't added you to the HR team yet. Ask them to add your email, then sign in again.</p>
+     <button class="btn btn-ghost" onclick="hrSignOut()"><i class="ti ti-logout"></i> Sign out</button>
+   </div>`;
 }
 async function hrSignOut(){ await Cloud.auth.signOut(); window._hrOK=false; renderGate(); }
 let hrFilter="all";
@@ -739,7 +785,8 @@ function renderHR(){
    </div>
    <div id="tripList">${list.length?list.map(tripCard).join(""):emptyState()}</div>
    <p style="text-align:center;color:var(--muted);font-size:12px;margin:18px 0 22px"><i class="ti ti-history"></i> Records roll off automatically after ${CONFIG.retentionMonths} months.</p>
-   ${SUPA_ON?hrDocsSectionHTML():""}`;
+   ${SUPA_ON?hrDocsSectionHTML():""}
+   ${SUPA_ON?hrTeamSectionHTML():""}`;
 }
 function tripCard(t){
   const flags=tripFlagCount(t);
@@ -859,6 +906,41 @@ async function hrUploadDoc(vehicle,docType,input){
 async function hrRemoveDoc(vehicle,docType){
   if(!confirm("Remove this document?")) return;
   try{ await Cloud.removeDoc(vehicle,docType); vehicleDocs=await Cloud.fetchDocs(); renderHR(); }
+  catch(e){ console.error(e); toast("Remove failed","ti-cloud-off"); }
+}
+
+/* ---- HR: manage team access ---- */
+function hrTeamSectionHTML(){
+  return `<div class="card pad" style="margin-top:20px">
+     <div class="section-title"><i class="ti ti-users"></i> Team access</div>
+     <p style="color:var(--muted);font-size:13px;margin:-8px 0 14px">People here can sign in and review inspections. Add a teammate's work email, then have them tap "Create your login" on the sign-in screen to set a password.</p>
+     ${hrTeam.length? hrTeam.map(u=>`
+       <div class="hrdoc-row">
+         <span class="doc-ico"><i class="ti ti-user"></i></span>
+         <span class="doc-meta"><b>${esc(u.name||u.email)}</b><small>${esc(u.email)}</small></span>
+         <span class="hrdoc-actions">
+           <button class="icon-btn danger" title="Remove access" onclick="removeTeamMember('${esc(u.email)}')"><i class="ti ti-user-minus"></i></button>
+         </span>
+       </div>`).join("") : `<p style="color:var(--muted);font-size:13.5px;margin-bottom:12px">No teammates added yet.</p>`}
+     <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+       <input id="teamName" class="control" placeholder="Name (optional)">
+       <input id="teamEmail" class="control" type="email" placeholder="Work email" autocomplete="off">
+       <button class="btn btn-primary" onclick="addTeamMember()"><i class="ti ti-user-plus"></i> Add teammate</button>
+     </div>
+   </div>`;
+}
+async function addTeamMember(){
+  const email=val("teamEmail"), name=val("teamName");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a valid email");
+  try{
+    await Cloud.addTeam(email,name);
+    hrTeam=await Cloud.fetchTeam();
+    toast("Teammate added","ti-user-check"); renderHR();
+  }catch(e){ console.error(e); toast(e.code==="23505"?"That email is already on the team":"Couldn't add — try again","ti-cloud-off"); }
+}
+async function removeTeamMember(email){
+  if(!confirm("Remove access for "+email+"?")) return;
+  try{ await Cloud.removeTeam(email); hrTeam=await Cloud.fetchTeam(); toast("Access removed","ti-check"); renderHR(); }
   catch(e){ console.error(e); toast("Remove failed","ti-cloud-off"); }
 }
 function doNotDrive(){

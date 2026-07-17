@@ -267,7 +267,6 @@ const CONFIG = {
   company: "WS Display",
   drivers: ["Mike Berret","Angel Coronel","Alex Escobar","Toan Tran","Kenny DeFrancisco","Richard De La Vega"],
   vehicles: ["Toyota Sienna","Honda LX"],
-  hrPasscode: "052107",       // used only if Supabase is NOT configured (fallback)
   retentionMonths: 12,        // reports older than this are auto-removed
 
   // ---- Supabase (leave key as-is to run in local-only mode) ----
@@ -708,16 +707,11 @@ function renderGate(){
      <button class="linkbtn" onclick="gateMode='signin';renderGate()">Already have a login? Sign in</button>
    </div>`) : `
    <div class="gate">
-     <i class="ti ti-lock"></i>
-     <h3 style="margin:10px 0 4px">HR access</h3>
-     <p style="color:var(--muted);font-size:14px;margin-bottom:16px">Enter the passcode to review inspections.</p>
-     <input id="pc" class="control" type="password" placeholder="Passcode" onkeydown="if(event.key==='Enter')checkGate()">
-     <button class="btn btn-primary" style="margin-top:12px" onclick="checkGate()">Unlock</button>
+     <i class="ti ti-cloud-off"></i>
+     <h3 style="margin:10px 0 4px">HR access unavailable</h3>
+     <p style="color:var(--muted);font-size:14px;margin-bottom:16px">Can't reach the server. HR review needs a connection — reload once you're back online.</p>
+     <button class="btn btn-primary" style="margin-top:12px" onclick="location.reload()"><i class="ti ti-refresh"></i> Reload</button>
    </div>`;
-}
-function checkGate(){
-  if(val("pc")===CONFIG.hrPasscode){window._hrOK=true;renderHR();}
-  else toast("Wrong passcode");
 }
 async function doSignIn(){
   const email=val("hrEmail"), pw=val("hrPw");
